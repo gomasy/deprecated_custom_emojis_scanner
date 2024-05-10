@@ -9,6 +9,8 @@ require "uri"
 require "./exception"
 
 @logger = Logger.new(ENV['LOG_PAHT'] || STDOUT)
+@logger.level = ENV['LOG_LEVEL'].to_i
+
 @conn = PG::Connection.new(
   host: ENV['DB_HOST'],
   port: ENV['DB_PORT'],
@@ -32,6 +34,8 @@ end
 @logger.info "Scanning custom emoji..."
 rows.each do |row|
   begin
+    @logger.debug "Checking: #{row["domain"]}, :#{row["shortcode"]}:"
+
     uri = URI.parse(row["image_remote_url"])
     req = Net::HTTP.new(uri.host, uri.port)
     req.use_ssl = true if uri.port == 443
@@ -43,8 +47,7 @@ rows.each do |row|
   rescue Socket::ResolutionError, CustomEmojiNotFoundError, CustomEmojiGoneError => e
     @logger.info "Detected: #{e.class} => #{row["domain"]}, :#{row["shortcode"]}:"
     remove(row["id"])
-  rescue Exception => e
+  rescue StandardError => e
     @logger.error "Error: #{e.class}, #{row["domain"]}, :#{row["shortcode"]}:"
   end
-  sleep 0.1
 end
