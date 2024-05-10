@@ -39,7 +39,7 @@ rows.each do |row|
     uri = URI.parse(row["image_remote_url"])
     req = Net::HTTP.new(uri.host, uri.port)
     req.use_ssl = true if uri.port == 443
-    req.read_timeout = 3
+    req.open_timeout = 3
     res = req.get(uri.path)
 
     raise CustomEmojiNotFoundError if res.is_a?(Net::HTTPNotFound)
