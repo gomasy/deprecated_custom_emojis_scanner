@@ -25,7 +25,7 @@ end
 
 rows = []
 @logger.info "Retrieving custom emoji information..."
-@conn.exec_params("SELECT * FROM custom_emojis WHERE domain IS NOT NULL") do |result|
+@conn.exec_params("SELECT * FROM custom_emojis WHERE domain IS NOT NULL ORDER BY id") do |result|
   result.each do |row|
     rows << row
   end
