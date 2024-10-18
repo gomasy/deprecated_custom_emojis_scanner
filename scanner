@@ -21,6 +21,8 @@ require "./exception"
 )
 
 def get_rows
+  @logger.info "Retrieving custom emoji information..."
+
   rows = []
   @conn.exec_params("SELECT * FROM custom_emojis WHERE domain IS NOT NULL ORDER BY id") do |result|
     result.each do |row|
@@ -35,8 +37,10 @@ def remove(id)
   @conn.exec_params("DELETE FROM custom_emojis WHERE id = $1", [ id ])
 end
 
-def check(uri)
-  uri = URI.parse(uri)
+def check(row)
+  @logger.debug "Checking: #{row["domain"]}, :#{row["shortcode"]}:"
+
+  uri = URI.parse(row["image_remote_url"])
   req = Net::HTTP.new(uri.host, uri.port)
   req.use_ssl = true if uri.port == 443
   req.open_timeout = 3
@@ -44,11 +48,15 @@ def check(uri)
 
   raise CustomEmojiNotFoundError if res.is_a?(Net::HTTPNotFound)
   raise CustomEmojiGoneError if res.is_a?(Net::HTTPGone)
+rescue URI::InvalidURIError, Socket::ResolutionError, CustomEmojiNotFoundError, CustomEmojiGoneError => e
+  @logger.info "Detected: #{e.class} => #{row["domain"]}, :#{row["shortcode"]}:"
+  remove(row["id"])
+rescue StandardError => e
+  @logger.error "Error: #{e.class}, #{row["domain"]}, :#{row["shortcode"]}:"
 end
 
 @logger.info "Scanning custom emoji..."
 begin
-  @logger.info "Retrieving custom emoji information..."
   rows = get_rows
   idx = 0
 
@@ -56,16 +64,10 @@ begin
     Parallel.each(0..ENV["CONCURRENCY"].to_i) do |i|
       row = rows[idx + i]
       if !row.nil?
-        @logger.debug "Checking: #{row["domain"]}, :#{row["shortcode"]}:"
-        check(row["image_remote_url"])
+        check(row)
       end
     end
 
     idx = idx + ENV["CONCURRENCY"].to_i
   end
-rescue URI::InvalidURIError, Socket::ResolutionError, CustomEmojiNotFoundError, CustomEmojiGoneError => e
-  @logger.info "Detected: #{e.class} => #{row["domain"]}, :#{row["shortcode"]}:"
-  remove(row["id"])
-rescue StandardError => e
-  @logger.error "Error: #{e.class}, #{row["domain"]}, :#{row["shortcode"]}:"
 end
