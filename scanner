@@ -2,52 +2,70 @@
 
 require "dotenv/load"
 require "net/http"
+require "parallel"
 require "logger"
 require "pg"
 require "uri"
 
 require "./exception"
 
-@logger = Logger.new(ENV['LOG_PAHT'] || STDOUT)
-@logger.level = ENV['LOG_LEVEL'].to_i
+@logger = Logger.new(ENV["LOG_PAHT"] || STDOUT)
+@logger.level = ENV["LOG_LEVEL"].to_i
 
 @conn = PG::Connection.new(
-  host: ENV['DB_HOST'],
-  port: ENV['DB_PORT'],
-  dbname: ENV['DB_NAME'],
-  user: ENV['DB_USER'],
-  password: ENV['DB_PASS'],
+  host: ENV["DB_HOST"],
+  port: ENV["DB_PORT"],
+  dbname: ENV["DB_NAME"],
+  user: ENV["DB_USER"],
+  password: ENV["DB_PASS"],
 )
+
+def get_rows
+  rows = []
+  @conn.exec_params("SELECT * FROM custom_emojis WHERE domain IS NOT NULL ORDER BY id") do |result|
+    result.each do |row|
+      rows << row
+    end
+  end
+
+  rows
+end
 
 def remove(id)
   @conn.exec_params("DELETE FROM custom_emojis WHERE id = $1", [ id ])
 end
 
-rows = []
-@logger.info "Retrieving custom emoji information..."
-@conn.exec_params("SELECT * FROM custom_emojis WHERE domain IS NOT NULL ORDER BY id") do |result|
-  result.each do |row|
-    rows << row
-  end
+def check(uri)
+  uri = URI.parse(uri)
+  req = Net::HTTP.new(uri.host, uri.port)
+  req.use_ssl = true if uri.port == 443
+  req.open_timeout = 3
+  res = req.get(uri.path)
+
+  raise CustomEmojiNotFoundError if res.is_a?(Net::HTTPNotFound)
+  raise CustomEmojiGoneError if res.is_a?(Net::HTTPGone)
 end
 
 @logger.info "Scanning custom emoji..."
-rows.each do |row|
-  begin
-    @logger.debug "Checking: #{row["domain"]}, :#{row["shortcode"]}:"
+begin
+  @logger.info "Retrieving custom emoji information..."
+  rows = get_rows
+  idx = 0
 
-    uri = URI.parse(row["image_remote_url"])
-    req = Net::HTTP.new(uri.host, uri.port)
-    req.use_ssl = true if uri.port == 443
-    req.open_timeout = 3
-    res = req.get(uri.path)
+  while !rows[idx].nil? do
+    Parallel.each(0..ENV["CONCURRENCY"].to_i) do |i|
+      row = rows[idx + i]
+      if !row.nil?
+        @logger.debug "Checking: #{row["domain"]}, :#{row["shortcode"]}:"
+        check(row["image_remote_url"])
+      end
+    end
 
-    raise CustomEmojiNotFoundError if res.is_a?(Net::HTTPNotFound)
-    raise CustomEmojiGoneError if res.is_a?(Net::HTTPGone)
-  rescue Socket::ResolutionError, CustomEmojiNotFoundError, CustomEmojiGoneError => e
-    @logger.info "Detected: #{e.class} => #{row["domain"]}, :#{row["shortcode"]}:"
-    remove(row["id"])
-  rescue StandardError => e
-    @logger.error "Error: #{e.class}, #{row["domain"]}, :#{row["shortcode"]}:"
+    idx = idx + ENV["CONCURRENCY"].to_i
   end
+rescue URI::InvalidURIError, Socket::ResolutionError, CustomEmojiNotFoundError, CustomEmojiGoneError => e
+  @logger.info "Detected: #{e.class} => #{row["domain"]}, :#{row["shortcode"]}:"
+  remove(row["id"])
+rescue StandardError => e
+  @logger.error "Error: #{e.class}, #{row["domain"]}, :#{row["shortcode"]}:"
 end

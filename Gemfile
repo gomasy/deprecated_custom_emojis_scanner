@@ -2,5 +2,6 @@
 
 source "https://rubygems.org"
 
+gem "parallel"
 gem "dotenv"
 gem "pg"
