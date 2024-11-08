@@ -2,8 +2,9 @@ GEM
   remote: https://rubygems.org/
   specs:
     dotenv (3.1.4)
+    logger (1.6.1)
     parallel (1.26.3)
-    pg (1.5.8)
+    pg (1.5.9)
 
 PLATFORMS
   ruby
@@ -11,8 +12,6 @@ PLATFORMS
 
 DEPENDENCIES
   dotenv
+  logger
   parallel
   pg
-
-BUNDLED WITH
-   2.5.16

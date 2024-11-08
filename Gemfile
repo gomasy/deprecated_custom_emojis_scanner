@@ -2,6 +2,7 @@
 
 source "https://rubygems.org"
 
+gem "logger"
 gem "parallel"
 gem "dotenv"
 gem "pg"
